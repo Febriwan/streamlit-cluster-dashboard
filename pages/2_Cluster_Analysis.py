@@ -7,7 +7,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans
 
 st.set_page_config(page_title="Analisis Klaster", layout="wide")
-st.title("Analisis Klaster & High Utility Itemset Mining")
+st.title("Analisis Klaster")
 
 if "df" not in st.session_state:
     st.error("Silakan buka halaman Dashboard terlebih dahulu untuk memuat data!")

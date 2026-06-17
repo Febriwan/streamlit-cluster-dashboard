@@ -55,7 +55,7 @@ st.subheader("Visualisasi Segmentasi Pelanggan (RFM Clustering)")
 try:
 
     raw_df = pd.read_csv(
-        r"D:\Skripsi_deskop\data\cleaned_uk_v2.csv"
+        r"data/cleaned_uk_v2.csv"
     )
 
     # Konversi tanggal

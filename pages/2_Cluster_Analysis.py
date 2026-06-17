@@ -159,9 +159,8 @@ try:
 
     # ================= KMEANS =================
     rfm_log = np.log1p(rfm_df[["Recency", "Frequency", "Monetary"]])
+    
     scaler = StandardScaler()
-
-    X = scaler.fit_transform(
     X = scaler.fit_transform(rfm_log)
 
     kmeans = KMeans(

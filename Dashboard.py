@@ -2,9 +2,10 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-st.set_page_config(page_title="Dashboard", layout="wide")
+st.set_page_config(page_title="E-Commerce Analytics Dashboard", layout="wide")
 
-st.title("E-Commerce Dashboard")
+st.title("E-Commerce Data Mining Dashboard")
+st.markdown("---")
 
 # ================= LOAD DATA =================
 @st.cache_data
@@ -16,89 +17,73 @@ def load_data():
             df = pd.read_csv(path)
             df["Cluster"] = i
             dfs.append(df)
-        except:
-            st.error(f"File tidak ditemukan: {path}")
+        except Exception as e:
+            st.error(f"File tidak ditemukan atau rusak: {path}. Error: {e}")
             st.stop()
 
-    df = pd.concat(dfs)
+    df = pd.concat(dfs, ignore_index=True)
 
-    # ================= CLEAN REVENUE =================
-    df["Revenue"] = (
-        df["Revenue"]
-        .astype(str)
-        .str.replace("£", "", regex=False)
-        .str.replace(",", "", regex=False)
-        .str.strip()
-    )
-
+    # ================= CLEAN REVENUE DENGAN REGEX =================
+    # Menghapus semua karakter kecuali angka dan titik desimal
+    df["Revenue"] = df["Revenue"].astype(str).str.replace(r"[^\d.]", "", regex=True)
     df["Revenue"] = pd.to_numeric(df["Revenue"], errors="coerce").fillna(0)
 
     return df
 
-
 df = load_data()
 st.session_state["df"] = df
 
-# ================= FILTER =================
+# ================= FILTER CLUSTER =================
 cluster = st.selectbox(
-    "Pilih Cluster",
-    ["All", 0, 1, 2, 3],
+    "Filter Berdasarkan Klaster:",
+    ["Semua Klaster (All)", 0, 1, 2, 3],
     index=0
 )
 
-if cluster == "All":
+if cluster == "Semua Klaster (All)":
     df_show = df
 else:
     df_show = df[df["Cluster"] == cluster]
 
-# ================= METRICS =================
+# ================= KARTU METRIK =================
 col1, col2, col3 = st.columns(3)
+with col1:
+    st.metric("Total Pendapatan", f"£{df_show['Revenue'].sum():,.2f}")
+with col2:
+    st.metric("Total Pola Produk", len(df_show))
+with col3:
+    st.metric("Rata-rata Pendapatan per Pola", f"£{df_show['Revenue'].mean():,.2f}")
 
-col1.metric("Total Revenue", f"£{df_show['Revenue'].sum():,.0f}")
-col2.metric("Total Product", len(df_show))
-col3.metric("Avg Revenue", f"£{df_show['Revenue'].mean():,.0f}")
+st.markdown("---")
 
-# ================= BAR CHART =================
-st.subheader("Top Products")
+# ================= VISUALISASI UTAMA =================
+col_left, col_right = st.columns(2)
 
-top = df_show.sort_values("Revenue", ascending=False).head(10)
+with col_left:
+    st.subheader("Top 10 Produk Berdasarkan Pendapatan")
+    top = df_show.sort_values("Revenue", ascending=False).head(10)
+    fig_bar = px.bar(
+        top,
+        x="Revenue",
+        y="Product_Name",
+        orientation="h",
+        labels={"Revenue": "Pendapatan (£)", "Product_Name": "Nama Produk"},
+        title="10 Produk Teratas",
+        color="Revenue",
+        color_continuous_scale="Viridis"
+    )
+    fig_bar.update_layout(yaxis={'categoryorder':'total ascending'})
+    st.plotly_chart(fig_bar, use_container_width=True)
 
-fig_bar = px.bar(
-    top,
-    x="Revenue",
-    y="Product_Name",
-    orientation="h",
-    title="Top 10 Product by Revenue"
-)
-
-st.plotly_chart(fig_bar, use_container_width=True)
-
-# ================= PIE CHART =================
-st.subheader("Distribusi Cluster")
-
-col_pie1, col_pie2 = st.columns(2)
-
-# PIE 1: JUMLAH DATA
-cluster_dist = df["Cluster"].value_counts().reset_index()
-cluster_dist.columns = ["Cluster", "Count"]
-
-fig_pie1 = px.pie(
-    cluster_dist,
-    names="Cluster",
-    values="Count",
-    title="Distribusi Data per Cluster"
-)
-
-col_pie1.plotly_chart(fig_pie1, use_container_width=True)
-
-# PIE 2: REVENUE
-rev_dist = df.groupby("Cluster")["Revenue"].sum().reset_index()
-
-fig_pie2 = px.pie(
-    rev_dist,
-    names="Cluster",
-    values="Revenue",
-    title="Kontribusi Revenue per Cluster"
-)
-
-col_pie2.plotly_chart(fig_pie2, use_container_width=True)
+with col_right:
+    st.subheader("Distribusi Kontribusi Klaster")
+    # Agregasi untuk pie chart pendapatan
+    revenue_dist = df.groupby("Cluster")["Revenue"].sum().reset_index()
+    fig_pie = px.pie(
+        revenue_dist,
+        values="Revenue",
+        names="Cluster",
+        title="Kontribusi Pendapatan per Klaster",
+        color_discrete_sequence=px.colors.qualitative.Pastel
+    )
+    st.plotly_chart(fig_pie, use_container_width=True)

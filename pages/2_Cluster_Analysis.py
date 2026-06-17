@@ -2,135 +2,262 @@ import streamlit as st
 import plotly.express as px
 import pandas as pd
 
-st.title(" Cluster Analysis + HUIM")
+from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import KMeans
 
-# ================= AMBIL DATA =================
+st.set_page_config(page_title="Analisis Klaster", layout="wide")
+st.title("Analisis Klaster & High Utility Itemset Mining")
+
 if "df" not in st.session_state:
-    st.error("Silakan buka Dashboard dulu")
+    st.error("Silakan buka halaman Dashboard terlebih dahulu untuk memuat data!")
     st.stop()
 
 df = st.session_state["df"].copy()
 
-# ================= FIX DATA =================
-df["Revenue"] = pd.to_numeric(df["Revenue"], errors="coerce").fillna(0)
-
-# ================= AGREGASI PER CLUSTER =================
+# ================= RINGKASAN KLASTER =================
+st.subheader("Ringkasan Performa Klaster")
 cluster_summary = df.groupby("Cluster").agg({
     "Revenue": ["sum", "mean", "count"]
 }).reset_index()
-
 cluster_summary.columns = ["Cluster", "Total Revenue", "Avg Revenue", "Total Product"]
 
-# ================= METRICS GLOBAL =================
-st.subheader(" Ringkasan Semua Cluster")
+# Perbaikan pada sintaks kurung kurawal format (menghapus spasi)
+st.dataframe(cluster_summary.style.format({
+    "Total Revenue": "£{:,.2f}",
+    "Avg Revenue": "£{:,.2f}"
+}), use_container_width=True)
 
-col1, col2, col3 = st.columns(3)
+# ================= SEBARAN KLASTER (SCATTER PLOT) =================
+st.markdown("---")
+st.subheader("Visualisasi Pemisahan Ruang Klaster (Pendapatan vs Itemset ID)")
 
-col1.metric("Total Revenue", f"£{df['Revenue'].sum():,.0f}")
-col2.metric("Total Product", len(df))
-col3.metric("Jumlah Cluster", df["Cluster"].nunique())
-
-# ================= BAR CHART =================
-st.subheader(" Perbandingan Revenue per Cluster")
-
-fig_bar = px.bar(
-    cluster_summary,
-    x="Cluster",
-    y="Total Revenue",
-    text_auto=True,
-    title="Total Revenue per Cluster"
-)
-
-st.plotly_chart(fig_bar, use_container_width=True)
-
-# ================= PIE CHART =================
-st.subheader(" Kontribusi Revenue")
-
-fig_pie = px.pie(
-    cluster_summary,
-    names="Cluster",
-    values="Total Revenue",
-    title="Kontribusi Revenue per Cluster"
-)
-
-st.plotly_chart(fig_pie, use_container_width=True)
-
-# ================= SCATTER =================
-st.subheader(" Distribusi Cluster")
-
-x_col = "Quantity" if "Quantity" in df.columns else None
-name_col = "Product_Name" if "Product_Name" in df.columns else None
-
-if x_col is None:
-    numeric_cols = df.select_dtypes(include="number").columns.tolist()
-    numeric_cols = [c for c in numeric_cols if c not in ["Cluster", "Revenue"]]
-    x_col = numeric_cols[0] if numeric_cols else "Revenue"
+# Mengubah tipe data Cluster menjadi string agar Plotly Express 
+# mewarnai klaster secara kategorikal/diskret (bukan gradasi warna numerik)
+df_scatter = df.copy()
+df_scatter["Cluster"] = df_scatter["Cluster"].astype(str)
 
 fig_scatter = px.scatter(
-    df,
-    x=x_col,
-    y="Revenue",
-    color=df["Cluster"].astype(str),
-    title=f"Cluster Distribution (X: {x_col}, Y: Revenue)",
-    hover_data=[name_col] if name_col else None
+    df_scatter, 
+    x="Revenue", 
+    y="Itemset_ID", 
+    color="Cluster",
+    title="Sebaran Itemset Berdasarkan Nilai Pendapatan dan ID Klaster",
+    labels={"Revenue": "Pendapatan (£)", "Itemset_ID": "Kerapatan Pola (Itemset)", "Cluster": "Klaster"},
+    color_discrete_sequence=px.colors.qualitative.Set1
 )
-
 st.plotly_chart(fig_scatter, use_container_width=True)
 
-# ================= TOP PRODUCT =================
-st.subheader(" Top Product per Cluster")
+st.markdown("---")
 
-if name_col is None:
-    name_col = df.columns[0]
+# ================= VISUALISASI RFM CLUSTERING =================
+st.subheader("Visualisasi Segmentasi Pelanggan (RFM Clustering)")
 
-for c in sorted(df["Cluster"].unique()):
-    st.markdown(f"### Cluster {c}")
-    
-    top = df[df["Cluster"] == c] \
-        .sort_values("Revenue", ascending=False) \
-        .head(5)
+try:
 
-    fig = px.bar(
-        top,
-        x="Revenue",
-        y=name_col,
-        orientation="h",
-        title=f"Top 5 Product Cluster {c}"
+    raw_df = pd.read_csv(
+        r"D:\Skripsi_deskop\data\cleaned_uk_v2.csv"
     )
 
-    st.plotly_chart(fig, use_container_width=True)
-
-# ================= HUIM =================
-st.subheader(" High Utility Item (Per Cluster)")
-
-def huim_simple(data, min_util=0.05):
-    total_revenue = data["Revenue"].sum()
-    threshold = total_revenue * min_util
-
-    hui = data.groupby(name_col)["Revenue"].sum().reset_index()
-    hui = hui[hui["Revenue"] >= threshold]
-
-    return hui.sort_values("Revenue", ascending=False)
-
-for c in sorted(df["Cluster"].unique()):
-    st.markdown(f"###  HUIM Cluster {c}")
-
-    temp = df[df["Cluster"] == c]
-
-    hui = huim_simple(temp, min_util=0.05)
-
-    if hui.empty:
-        st.warning("Tidak ada high utility item")
-        continue
-
-    st.dataframe(hui.head(10), use_container_width=True)
-
-    fig = px.bar(
-        hui.head(10),
-        x="Revenue",
-        y=name_col,
-        orientation="h",
-        title=f"Top High Utility Items Cluster {c}"
+    # Konversi tanggal
+    raw_df["InvoiceDate"] = pd.to_datetime(
+        raw_df["InvoiceDate"],
+        errors="coerce"
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    # Revenue
+    raw_df["Revenue"] = (
+        raw_df["Quantity"] * raw_df["Price"]
+    )
+
+    # Snapshot date
+    snapshot_date = (
+        raw_df["InvoiceDate"].max()
+        + pd.Timedelta(days=1)
+    )
+
+    # ================= RFM =================
+    rfm_df = raw_df.groupby("Customer ID").agg({
+        "InvoiceDate": lambda x: (snapshot_date - x.max()).days,
+        "Invoice": "nunique",
+        "Revenue": "sum"
+    }).reset_index()
+
+    rfm_df.columns = [
+        "CustomerID",
+        "Recency",
+        "Frequency",
+        "Monetary"
+    ]
+
+    # ================= OUTLIER REMOVAL (TOP 1%) =================
+
+    st.markdown("### Outlier Cleaning (Top 1%)")
+
+    total_before = len(rfm_df)
+
+    freq_cutoff = rfm_df["Frequency"].quantile(0.99)
+    monetary_cutoff = rfm_df["Monetary"].quantile(0.99)
+
+    rfm_original = rfm_df.copy()
+
+    rfm_df = rfm_df[
+        (rfm_df["Frequency"] <= freq_cutoff) &
+        (rfm_df["Monetary"] <= monetary_cutoff)
+    ].copy()
+
+    total_after = len(rfm_df)
+
+    col_a, col_b, col_c = st.columns(3)
+
+    with col_a:
+        st.metric(
+            "Customer Sebelum Filter",
+            total_before
+        )
+
+    with col_b:
+        st.metric(
+            "Customer Setelah Filter",
+            total_after
+        )
+
+    with col_c:
+        st.metric(
+            "Outlier Dihapus",
+            total_before - total_after
+        )
+
+    # ================= VISUALISASI OUTLIER =================
+
+    col_before, col_after = st.columns(2)
+
+    with col_before:
+
+        fig_before = px.box(
+            rfm_original,
+            y=["Frequency", "Monetary"],
+            title="Sebelum Outlier Removal"
+        )
+
+        st.plotly_chart(
+            fig_before,
+            use_container_width=True
+        )
+
+    with col_after:
+
+        fig_after = px.box(
+            rfm_df,
+            y=["Frequency", "Monetary"],
+            title="Setelah Outlier Removal (Top 1%)"
+        )
+
+        st.plotly_chart(
+            fig_after,
+            use_container_width=True
+        )
+
+    # ================= KMEANS =================
+
+    scaler = StandardScaler()
+
+    X = scaler.fit_transform(
+        rfm_df[
+            ["Recency", "Frequency", "Monetary"]
+        ]
+    )
+
+    kmeans = KMeans(
+        n_clusters=4,
+        random_state=42,
+        n_init=10
+    )
+
+    rfm_df["Cluster"] = kmeans.fit_predict(X)
+    rfm_df["Cluster"] = rfm_df["Cluster"].astype(str)
+
+    # ================= CHART 1 =================
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        fig_rf = px.scatter(
+            rfm_df,
+            x="Recency",
+            y="Frequency",
+            color="Cluster",
+            log_y=True,
+            opacity=0.7,
+            title="Recency vs Frequency",
+            color_discrete_sequence=px.colors.qualitative.Set1
+        )
+
+        st.plotly_chart(
+            fig_rf,
+            use_container_width=True
+        )
+
+    # ================= CHART 2 =================
+
+    with col2:
+
+        fig_fm = px.scatter(
+            rfm_df,
+            x="Frequency",
+            y="Monetary",
+            color="Cluster",
+            log_y=True,
+            opacity=0.7,
+            title="Frequency vs Monetary",
+            color_discrete_sequence=px.colors.qualitative.Set1
+        )
+
+        st.plotly_chart(
+            fig_fm,
+            use_container_width=True
+        )
+
+    # ================= CHART 3 =================
+
+    fig_rm = px.scatter(
+        rfm_df,
+        x="Recency",
+        y="Monetary",
+        color="Cluster",
+        log_y=True,
+        opacity=0.7,
+        title="Recency vs Monetary",
+        color_discrete_sequence=px.colors.qualitative.Set1
+    )
+
+    st.plotly_chart(
+        fig_rm,
+        use_container_width=True
+    )
+
+    # ================= RINGKASAN RFM =================
+
+    st.markdown("### Ringkasan Segmentasi Pelanggan")
+
+    rfm_summary = (
+        rfm_df.groupby("Cluster")
+        .agg({
+            "CustomerID": "count",
+            "Recency": "mean",
+            "Frequency": "mean",
+            "Monetary": "mean"
+        })
+        .round(2)
+    )
+
+    st.dataframe(
+        rfm_summary,
+        use_container_width=True
+    )
+
+except Exception as e:
+
+    st.error(
+        f"Gagal membuat visualisasi RFM: {e}"
+    )
